@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MBG Rebuild — Interior Viewer</title>
+    <style>
+      @font-face {
+        font-family: "Baloo 2";
+        font-style: normal;
+        font-weight: 600;
+        src: url("/fonts/baloo2-600.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Baloo 2";
+        font-style: normal;
+        font-weight: 800;
+        src: url("/fonts/baloo2-800.woff2") format("woff2");
+      }
+      body {
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+      }
+      #status {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        color: #fff;
+        font-family: monospace;
+        font-size: 12px;
+        text-shadow: 0 1px 2px #000;
+        z-index: 10;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status">Loading…</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

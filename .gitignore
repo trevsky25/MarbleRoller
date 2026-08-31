@@ -1,0 +1,11 @@
+# Reference implementation (MBHaxe clone) — not part of this repo
+/reference/
+
+# Game assets & levels — copyrighted content, never committed
+/mbg-data/
+
+# Build / deps
+node_modules/
+dist/
+*.log
+.DS_Store

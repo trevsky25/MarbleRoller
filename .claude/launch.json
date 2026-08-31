@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mbg-rebuild",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 8372
+    },
+    {
+      "name": "mbhaxe-reference",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "http-server", "reference", "-p", "8371", "-c-1", "--silent"],
+      "port": 8371
+    }
+  ]
+}
