@@ -38,6 +38,7 @@ export class PauseMenu {
   currentCustomName: string | null = null;
   // standalone home mode: the menu IS the app (no game behind it)
   private standalone = false;
+  private lastLevelSelectOrigin: "pause" | "home" = "pause";
 
   // Entry point for booting straight into the Home screen.
   openHome(): void {
@@ -128,10 +129,7 @@ export class PauseMenu {
     newRow.style.cssText =
       "grid-column:1/-1;padding:8px 12px;margin:3px 0;cursor:pointer;border-radius:10px;text-align:center;" +
       "font:800 17px 'Baloo 2',sans-serif;color:#5b3a06;background:linear-gradient(180deg,#fff3b0,#f5bd2e);border:2px solid #a06a12;";
-    newRow.onclick = () => {
-      const name = prompt("Level name:", "My Level");
-      if (name !== null && name.trim() !== "") this.openEditor(name.trim());
-    };
+    newRow.onclick = () => this.showNamePrompt(() => void this.showLevelSelect(this.lastLevelSelectOrigin));
     listWrap.appendChild(newRow);
 
     for (const name of names) {
@@ -156,16 +154,29 @@ export class PauseMenu {
       };
       row.appendChild(editBtn);
 
+      // two-click confirm (window.confirm is blocked in sandboxed frames)
       const delBtn = document.createElement("button");
       delBtn.textContent = "🗑";
       delBtn.title = "Delete";
       delBtn.style.cssText = editBtn.style.cssText;
+      let armed = false;
       delBtn.onclick = (e) => {
         e.stopPropagation();
-        if (confirm(`Delete "${name}"?`)) {
-          deleteCustomLevel(name);
-          listWrap.innerHTML = "";
-          this.renderCustomList(listWrap);
+        if (!armed) {
+          armed = true;
+          delBtn.textContent = "Sure?";
+          delBtn.style.cssText = editBtn.style.cssText + "width:auto;padding:0 8px;background:#ff5040;color:#fff;font:800 13px 'Baloo 2',sans-serif;";
+          return;
+        }
+        deleteCustomLevel(name);
+        listWrap.innerHTML = "";
+        this.renderCustomList(listWrap);
+      };
+      delBtn.onmouseleave = () => {
+        if (armed) {
+          armed = false;
+          delBtn.textContent = "🗑";
+          delBtn.style.cssText = editBtn.style.cssText;
         }
       };
       row.appendChild(delBtn);
@@ -216,6 +227,18 @@ export class PauseMenu {
     );
   }
 
+  // In standalone mode there is no game to see behind the menu; keep the
+  // classic backdrop art behind every view.
+  private addBackdropIfStandalone(): void {
+    if (!this.standalone) return;
+    const backdropUrl = this.index.resolve("data/ui/background.jpg");
+    if (backdropUrl !== null) {
+      const backdrop = document.createElement("div");
+      backdrop.style.cssText = `position:absolute;inset:0;background:url("${backdropUrl}") center/cover no-repeat;`;
+      this.root.appendChild(backdrop);
+    }
+  }
+
   // MBG-style Home screen over the classic backdrop art
   private showHome(): void {
     this.root.innerHTML = "";
@@ -236,16 +259,59 @@ export class PauseMenu {
 
     card.appendChild(this.button("Play", () => void this.showLevelSelect("home")));
     card.appendChild(
-      this.button("Build Custom Level", () => {
-        const name = prompt("Name for your custom level (sandbox — official levels can't be edited):", "My Level");
-        if (name !== null && name.trim() !== "") this.openEditor(name.trim());
-      }),
+      this.button("Build Custom Level", () => this.showNamePrompt(() => this.showHome())),
     );
     if (!this.standalone) {
       card.appendChild(this.button("Back to Game", () => this.onResume?.()));
     }
 
     this.root.appendChild(card);
+  }
+
+  // In-menu name entry (window.prompt is blocked in sandboxed frames)
+  private showNamePrompt(onCancel: () => void): void {
+    this.root.innerHTML = "";
+    this.addBackdropIfStandalone();
+    const card = document.createElement("div");
+    card.style.cssText = CARD_CSS;
+
+    const title = document.createElement("h1");
+    title.textContent = "New Custom Level";
+    title.style.cssText = TITLE_CSS.replace("40px", "30px");
+    card.appendChild(title);
+
+    const sub = document.createElement("div");
+    sub.textContent = "Sandbox — official levels can't be edited";
+    sub.style.cssText =
+      "font:600 13px 'Baloo 2',sans-serif;color:#0d2c4d;background:#ffe37a;border-radius:8px;" +
+      "padding:3px 10px;margin:-6px auto 12px;text-align:center;width:fit-content;";
+    card.appendChild(sub);
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = "My Level";
+    input.maxLength = 40;
+    input.style.cssText =
+      "display:block;width:100%;box-sizing:border-box;padding:10px 14px;margin-bottom:12px;" +
+      "border-radius:12px;border:3px solid #2c5d94;background:rgba(255,255,255,0.85);" +
+      "font:600 18px 'Baloo 2',sans-serif;color:#173a5e;outline:none;text-align:center;";
+    input.onfocus = () => input.select();
+    card.appendChild(input);
+
+    const create = this.button("Create", () => {
+      const name = input.value.trim();
+      if (name !== "") this.openEditor(name);
+    });
+    card.appendChild(create);
+    card.appendChild(this.button("Cancel", onCancel));
+
+    input.onkeydown = (e) => {
+      if (e.key === "Enter") create.click();
+      e.stopPropagation();
+    };
+
+    this.root.appendChild(card);
+    setTimeout(() => input.focus(), 50);
   }
 
   private openEditor(name: string): void {
@@ -257,7 +323,9 @@ export class PauseMenu {
   }
 
   private async showLevelSelect(origin: "pause" | "home" = "pause"): Promise<void> {
+    this.lastLevelSelectOrigin = origin;
     this.root.innerHTML = "";
+    this.addBackdropIfStandalone();
     const card = document.createElement("div");
     // Wider, shorter layout: two-column level grid
     card.style.cssText = CARD_CSS + "min-width:640px;max-width:760px;max-height:72vh;";
