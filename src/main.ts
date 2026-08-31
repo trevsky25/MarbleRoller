@@ -5,6 +5,8 @@ import { Graphics } from "./render/graphics";
 import { MaterialEnhancer } from "./render/materialEnhancer";
 import { Input } from "./input";
 import { PauseMenu } from "./game/pauseMenu";
+import { Editor } from "./editor/editor";
+import { emptyLevel, loadCustomLevel } from "./editor/customLevel";
 
 // Slice 3: full mission gameplay — Ready/Set/Go, timer, gems, powerups,
 // OOB, finish. Pick the level with ?mis=data/missions/beginner/<name>.mis
@@ -35,10 +37,42 @@ async function main(): Promise<void> {
   const enhancer = new MaterialEnhancer(mode === "enhanced", renderer);
 
   const index = await ResourceIndex.load();
+
+  // --- Editor mode ---
+  const editName = params.get("edit");
+  if (editName !== null) {
+    status.textContent = "";
+    const level = loadCustomLevel(editName) ?? emptyLevel(editName);
+    const editor = new Editor(scene, camera, renderer, index, graphics, level);
+    (window as unknown as Record<string, unknown>).__editor = editor;
+    let lastEditorTime = performance.now();
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      graphics.resize(window.innerWidth, window.innerHeight);
+    });
+    renderer.setAnimationLoop(() => {
+      const now = performance.now();
+      const dt = Math.min((now - lastEditorTime) / 1000, 0.1);
+      lastEditorTime = now;
+      editor.update(dt);
+    });
+    return;
+  }
+
+  // --- Game mode (mission or custom level) ---
   const world = new GameWorld(scene, camera, index, enhancer);
+  const customName = params.get("custom");
 
   try {
-    await world.load(misPath);
+    if (customName !== null) {
+      const level = loadCustomLevel(customName);
+      if (level === null) throw new Error(`Custom level not found: ${customName}`);
+      await world.loadCustom(level);
+    } else {
+      await world.load(misPath);
+    }
   } catch (e) {
     status.textContent = `Error: ${e instanceof Error ? e.message : String(e)}`;
     throw e;
@@ -82,6 +116,7 @@ async function main(): Promise<void> {
 
   // Pause menu (Esc)
   const pauseMenu = new PauseMenu(index);
+  pauseMenu.currentCustomName = customName;
   let paused = false;
 
   const pauseGame = (): void => {

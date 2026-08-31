@@ -1,6 +1,7 @@
 // Esc pause menu + level select, styled after MBG's blue card / yellow pill
 // UI but rendered as crisp DOM.
 import { ResourceIndex } from "../assets/resourceIndex";
+import { listCustomLevels, deleteCustomLevel } from "../editor/customLevel";
 
 const CARD_CSS =
   "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);" +
@@ -33,6 +34,8 @@ export class PauseMenu {
   isOpen = false;
   onResume: (() => void) | null = null;
   onRestart: (() => void) | null = null;
+  // set when the session is playing a custom level (enables Edit This Level)
+  currentCustomName: string | null = null;
 
   private root: HTMLDivElement;
   private index: ResourceIndex;
@@ -93,6 +96,9 @@ export class PauseMenu {
     card.appendChild(this.button("Resume", () => this.onResume?.()));
     card.appendChild(this.button("Restart Level", () => this.onRestart?.()));
     card.appendChild(this.button("Level Select", () => void this.showLevelSelect("pause")));
+    if (this.currentCustomName !== null) {
+      card.appendChild(this.button("Edit This Level", () => this.openEditor(this.currentCustomName!)));
+    }
     card.appendChild(this.button("Home", () => this.showHome()));
 
     const hint = document.createElement("div");
@@ -101,6 +107,77 @@ export class PauseMenu {
     card.appendChild(hint);
 
     this.root.appendChild(card);
+  }
+
+  private renderCustomList(listWrap: HTMLDivElement): void {
+    const names = listCustomLevels();
+
+    // New Level row
+    const newRow = document.createElement("div");
+    newRow.textContent = "+ New Level";
+    newRow.style.cssText =
+      "grid-column:1/-1;padding:8px 12px;margin:3px 0;cursor:pointer;border-radius:10px;text-align:center;" +
+      "font:800 17px 'Baloo 2',sans-serif;color:#5b3a06;background:linear-gradient(180deg,#fff3b0,#f5bd2e);border:2px solid #a06a12;";
+    newRow.onclick = () => {
+      const name = prompt("Level name:", "My Level");
+      if (name !== null && name.trim() !== "") this.openEditor(name.trim());
+    };
+    listWrap.appendChild(newRow);
+
+    for (const name of names) {
+      const row = document.createElement("div");
+      row.style.cssText =
+        "display:flex;align-items:center;gap:8px;padding:5px 8px;margin:3px 0;cursor:pointer;border-radius:10px;" +
+        "background:rgba(255,255,255,0.55);";
+      const label = document.createElement("div");
+      label.textContent = name;
+      label.style.cssText = "flex:1;font:600 17px 'Baloo 2',sans-serif;color:#173a5e;";
+      row.appendChild(label);
+
+      const editBtn = document.createElement("button");
+      editBtn.textContent = "✎";
+      editBtn.title = "Edit";
+      editBtn.style.cssText =
+        "flex:none;width:30px;height:30px;cursor:pointer;border-radius:8px;border:2px solid #2c5d94;" +
+        "background:rgba(255,255,255,0.7);font-size:15px;";
+      editBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.openEditor(name);
+      };
+      row.appendChild(editBtn);
+
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "🗑";
+      delBtn.title = "Delete";
+      delBtn.style.cssText = editBtn.style.cssText;
+      delBtn.onclick = (e) => {
+        e.stopPropagation();
+        if (confirm(`Delete "${name}"?`)) {
+          deleteCustomLevel(name);
+          listWrap.innerHTML = "";
+          this.renderCustomList(listWrap);
+        }
+      };
+      row.appendChild(delBtn);
+
+      row.onmouseenter = () => (row.style.background = "#ffe98f");
+      row.onmouseleave = () => (row.style.background = "rgba(255,255,255,0.55)");
+      row.onclick = () => {
+        const params = new URLSearchParams(window.location.search);
+        params.delete("mis");
+        params.delete("edit");
+        params.set("custom", name);
+        window.location.search = params.toString();
+      };
+      listWrap.appendChild(row);
+    }
+
+    if (names.length === 0) {
+      const empty = document.createElement("div");
+      empty.textContent = "No custom levels yet — make one!";
+      empty.style.cssText = "grid-column:1/-1;font:600 16px 'Baloo 2',sans-serif;color:#173a5e;text-align:center;padding:12px;";
+      listWrap.appendChild(empty);
+    }
   }
 
   private prettify(path: string): string {
@@ -148,9 +225,23 @@ export class PauseMenu {
     card.appendChild(title);
 
     card.appendChild(this.button("Play", () => void this.showLevelSelect("home")));
+    card.appendChild(
+      this.button("Level Editor", () => {
+        const name = prompt("Level name:", "My Level");
+        if (name !== null && name.trim() !== "") this.openEditor(name.trim());
+      }),
+    );
     card.appendChild(this.button("Back to Game", () => this.onResume?.()));
 
     this.root.appendChild(card);
+  }
+
+  private openEditor(name: string): void {
+    const params = new URLSearchParams(window.location.search);
+    params.delete("mis");
+    params.delete("custom");
+    params.set("edit", name);
+    window.location.search = params.toString();
   }
 
   private async showLevelSelect(origin: "pause" | "home" = "pause"): Promise<void> {
@@ -179,6 +270,10 @@ export class PauseMenu {
         child.style.color = active ? "#fff" : "#cfe4f7";
       }
       listWrap.innerHTML = "";
+      if (category === "custom") {
+        this.renderCustomList(listWrap);
+        return;
+      }
       const paths = this.index.listFiles(`data/missions/${category}/`, ".mis");
       const entries: (LevelEntry & { level: number | null })[] = paths.map((path) => ({
         path,
@@ -244,7 +339,7 @@ export class PauseMenu {
       }
     };
 
-    for (const category of ["beginner", "intermediate", "advanced"]) {
+    for (const category of ["beginner", "intermediate", "advanced", "custom"]) {
       const tab = document.createElement("div");
       tab.textContent = category.charAt(0).toUpperCase() + category.substring(1);
       tab.dataset.cat = category;

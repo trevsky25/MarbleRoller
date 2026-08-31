@@ -16,10 +16,13 @@ import { CameraController } from "../marble/cameraController";
 import { Hud } from "./hud";
 import { Vec3 } from "../math/vec3";
 import { MaterialEnhancer } from "../render/materialEnhancer";
+import { CustomLevelData, surfaceById } from "../editor/customLevel";
+import { BlockArrays, emitBlock } from "../render/blockGeometry";
+import { CollisionSurface } from "../collision/collisionSurface";
 
 interface ShapeInstance {
   def: ShapeDef;
-  element: MisElement;
+  element: MisElement | null;
   group: THREE.Group;
   position: Vec3;
   worldBounds: THREE.Box3;
@@ -89,6 +92,88 @@ export class GameWorld {
   ambientColor: THREE.Color | null = null;
 
   private enhancer: MaterialEnhancer | undefined;
+  private shapeColliderEntity = new CollisionEntity();
+  private lastStartPad: { position: Vec3; yaw: number } | null = null;
+
+  // Spawn one game shape (pad/sign/gem/powerup) by datablock name. Shared by
+  // the .mis loader and custom levels.
+  async spawnShape(
+    dataBlock: string,
+    elementName: string,
+    position: Vec3,
+    quat: THREE.Quaternion,
+    scaleIn: Vec3,
+    opts: { rotate?: boolean; timeBonus?: number | null; element?: MisElement | null } = {},
+  ): Promise<void> {
+    const def = shapeDefForDataBlock(dataBlock, elementName);
+    if (def === null) return;
+
+    const scale = new Vec3(scaleIn.x || 0.0001, scaleIn.y || 0.0001, scaleIn.z || 0.0001);
+    const matrix = new THREE.Matrix4().compose(
+      new THREE.Vector3(position.x, position.y, position.z),
+      quat,
+      new THREE.Vector3(scale.x, scale.y, scale.z),
+    );
+
+    // Gem color skin: random per MBG behavior
+    let matNameOverride = def.matNameOverride;
+    if (def.kind === "gem") {
+      const color = GEM_COLORS[Math.floor(Math.random() * GEM_COLORS.length)]!;
+      matNameOverride = new Map([["base.gem", `${color}.gem`]]);
+    }
+
+    const dtsBuffer = await this.index.loadArrayBuffer(def.dtsPath);
+    const dtsShape = parseDts(dtsBuffer);
+    const built = buildDtsShape(dtsShape, def.dtsPath, this.index, this.textureLoader, {
+      matNameOverride: matNameOverride ?? new Map(),
+      collisionTransform: def.kind === "startPad" || def.kind === "endPad" || def.kind === "sign" ? matrix : null,
+      enhancer: this.enhancer,
+    });
+
+    built.group.applyMatrix4(matrix);
+    this.scene.add(built.group);
+    for (const surface of built.collisionSurfaces) this.shapeColliderEntity.addSurface(surface);
+
+    const worldBounds = built.localBounds.clone().applyMatrix4(matrix);
+
+    const instance: ShapeInstance = {
+      def,
+      element: opts.element ?? null,
+      group: built.group,
+      position,
+      worldBounds,
+      pickedUp: false,
+      hiddenUntil: 0,
+      rotate: opts.rotate ?? false,
+      timeBonus: 5,
+      pickUpName: def.pickUpName ?? "",
+    };
+
+    if (def.kind === "timeTravel") {
+      if (opts.timeBonus !== null && opts.timeBonus !== undefined) instance.timeBonus = opts.timeBonus;
+      instance.pickUpName = `${instance.timeBonus} second Time Travel bonus`;
+    }
+
+    this.shapes.push(instance);
+
+    if (def.kind === "gem") this.totalGems++;
+    if (def.kind === "startPad") {
+      this.lastStartPad = { position, yaw: quatYaw(quat) };
+    }
+    if (def.kind === "endPad") {
+      this.endPadPosition = position;
+      const up = new THREE.Vector3(0, 0, 1).applyQuaternion(quat);
+      this.endPadUp = new Vec3(up.x, up.y, up.z);
+      this.endPadRadius = 1.7 * Math.max(scale.x, scale.y);
+    }
+  }
+
+  private finalizeShapeColliders(): void {
+    if (this.shapeColliderEntity.surfaces.length > 0) {
+      this.shapeColliderEntity.finalize();
+      this.collisionWorld.addEntity(this.shapeColliderEntity);
+    }
+  }
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera, index: ResourceIndex, enhancer?: MaterialEnhancer) {
     this.scene = scene;
@@ -195,90 +280,29 @@ export class GameWorld {
     }
 
     // Static shapes and items
-    const shapeColliderEntity = new CollisionEntity();
-    let lastStartPad: { position: Vec3; yaw: number } | null = null;
-
     for (const el of elements) {
       if (el.type !== "StaticShape" && el.type !== "Item") continue;
       const dataBlock = fieldOf(el, "datablock") ?? "";
-      const def = shapeDefForDataBlock(dataBlock, el.name);
-      if (def === null) continue;
 
       const position = parseVector3(fieldOf(el, "position"));
       const rotation = parseRotation(fieldOf(el, "rotation"));
       const scale = parseVector3(fieldOf(el, "scale"));
-      if (scale.x === 0) scale.x = 0.0001;
-      if (scale.y === 0) scale.y = 0.0001;
-      if (scale.z === 0) scale.z = 0.0001;
-
       const quat = new THREE.Quaternion(rotation.x, rotation.y, rotation.z, rotation.w);
-      const matrix = new THREE.Matrix4().compose(
-        new THREE.Vector3(position.x, position.y, position.z),
-        quat,
-        new THREE.Vector3(scale.x, scale.y, scale.z),
-      );
 
-      // Gem color skin: random per MBG behavior
-      let matNameOverride = def.matNameOverride;
-      if (def.kind === "gem") {
-        const color = GEM_COLORS[Math.floor(Math.random() * GEM_COLORS.length)]!;
-        matNameOverride = new Map([["base.gem", `${color}.gem`]]);
-      }
+      let timeBonus: number | null = null;
+      const tb = fieldOf(el, "timebonus");
+      const tp = fieldOf(el, "timepenalty");
+      if (tb !== null) timeBonus = parseNumber(tb) / 1000;
+      else if (tp !== null) timeBonus = -parseNumber(tp) / 1000;
 
-      const dtsBuffer = await this.index.loadArrayBuffer(def.dtsPath);
-      const dtsShape = parseDts(dtsBuffer);
-      const built = buildDtsShape(dtsShape, def.dtsPath, this.index, this.textureLoader, {
-        matNameOverride: matNameOverride ?? new Map(),
-        collisionTransform: def.kind === "startPad" || def.kind === "endPad" || def.kind === "sign" ? matrix : null,
-        enhancer: this.enhancer,
-      });
-
-      built.group.applyMatrix4(matrix);
-      this.scene.add(built.group);
-      for (const surface of built.collisionSurfaces) shapeColliderEntity.addSurface(surface);
-
-      const worldBounds = built.localBounds.clone().applyMatrix4(matrix);
-
-      const instance: ShapeInstance = {
-        def,
-        element: el,
-        group: built.group,
-        position,
-        worldBounds,
-        pickedUp: false,
-        hiddenUntil: 0,
+      await this.spawnShape(dataBlock, el.name, position, quat, scale, {
         rotate: el.type === "Item" && parseBoolean(fieldOf(el, "rotate")),
-        timeBonus: 5,
-        pickUpName: def.pickUpName ?? "",
-      };
-
-      if (def.kind === "timeTravel") {
-        const tb = fieldOf(el, "timebonus");
-        const tp = fieldOf(el, "timepenalty");
-        if (tb !== null) instance.timeBonus = parseNumber(tb) / 1000;
-        else if (tp !== null) instance.timeBonus = -parseNumber(tp) / 1000;
-        instance.pickUpName = `${instance.timeBonus} second Time Travel bonus`;
-      }
-
-      this.shapes.push(instance);
-
-      if (def.kind === "gem") this.totalGems++;
-      if (def.kind === "startPad") {
-        lastStartPad = { position, yaw: quatYaw(quat) };
-      }
-      if (def.kind === "endPad") {
-        this.endPadPosition = position;
-        this.endPadUp = new Vec3(0, 0, 1);
-        const up = new THREE.Vector3(0, 0, 1).applyQuaternion(quat);
-        this.endPadUp = new Vec3(up.x, up.y, up.z);
-        this.endPadRadius = 1.7 * Math.max(scale.x, scale.y);
-      }
+        timeBonus,
+        element: el,
+      });
     }
 
-    if (shapeColliderEntity.surfaces.length > 0) {
-      shapeColliderEntity.finalize();
-      this.collisionWorld.addEntity(shapeColliderEntity);
-    }
+    this.finalizeShapeColliders();
 
     // Triggers
     for (const el of elements) {
@@ -322,9 +346,87 @@ export class GameWorld {
       this.triggers.push({ kind, bounds, text: fieldOf(el, "text") ?? "", marbleInside: false });
     }
 
-    if (lastStartPad !== null) {
-      this.spawnPosition = new Vec3(lastStartPad.position.x, lastStartPad.position.y, lastStartPad.position.z + 3);
-      this.spawnYaw = lastStartPad.yaw + Math.PI / 2;
+    if (this.lastStartPad !== null) {
+      this.spawnPosition = new Vec3(this.lastStartPad.position.x, this.lastStartPad.position.y, this.lastStartPad.position.z + 3);
+      this.spawnYaw = this.lastStartPad.yaw + Math.PI / 2;
+    }
+
+    this.hud.setGems(this.gemCount, this.totalGems);
+  }
+
+  // Load a custom (editor-built) level: block geometry + placed shapes.
+  async loadCustom(data: CustomLevelData): Promise<void> {
+    this.missionTitle = data.name;
+    this.startHelpText = null;
+
+    // Group render geometry by surface; one collision surface per block so
+    // the per-entity grid stays effective.
+    const bySurface = new Map<string, BlockArrays>();
+    const blockEntity = new CollisionEntity();
+    for (const block of data.blocks) {
+      const surface = surfaceById(block.surface);
+      let arrays = bySurface.get(surface.id);
+      if (arrays === undefined) {
+        arrays = { positions: [], normals: [], uvs: [] };
+        bySurface.set(surface.id, arrays);
+      }
+      const collisionSurface = new CollisionSurface();
+      collisionSurface.friction = surface.friction;
+      collisionSurface.restitution = surface.restitution;
+      collisionSurface.force = surface.force;
+      emitBlock(block, surface, arrays, collisionSurface);
+      if (collisionSurface.points.length > 0) {
+        collisionSurface.generateBoundingBox();
+        blockEntity.addSurface(collisionSurface);
+      }
+    }
+
+    for (const [surfaceId, arrays] of bySurface) {
+      if (arrays.positions.length === 0) continue;
+      const surface = surfaceById(surfaceId);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(arrays.positions), 3));
+      geometry.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(arrays.normals), 3));
+      geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(arrays.uvs), 2));
+
+      let texture: THREE.Texture | null = null;
+      const url = this.index.resolve(surface.texture);
+      if (url !== null) {
+        texture = this.textureLoader.load(url);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.flipY = false;
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.anisotropy = 4;
+      }
+      const material =
+        this.enhancer !== undefined
+          ? this.enhancer.createMaterial(surface.texture.substring(surface.texture.lastIndexOf("/") + 1), texture)
+          : new THREE.MeshPhongMaterial({ map: texture, side: THREE.DoubleSide });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      this.scene.add(mesh);
+    }
+
+    if (blockEntity.surfaces.length > 0) {
+      blockEntity.finalize();
+      this.collisionWorld.addEntity(blockEntity);
+      this.worldMinZ = Math.min(this.worldMinZ, blockEntity.boundingBox.zMin);
+    }
+
+    // Items
+    for (const item of data.items) {
+      const quat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), (item.rot * Math.PI) / 2);
+      await this.spawnShape(item.datablock, "", new Vec3(item.x, item.y, item.z), quat, new Vec3(1, 1, 1), {
+        rotate: item.datablock.toLowerCase() !== "startpad" && item.datablock.toLowerCase() !== "endpad" && !item.datablock.toLowerCase().startsWith("sign"),
+      });
+    }
+    this.finalizeShapeColliders();
+
+    if (this.lastStartPad !== null) {
+      this.spawnPosition = new Vec3(this.lastStartPad.position.x, this.lastStartPad.position.y, this.lastStartPad.position.z + 3);
+      this.spawnYaw = this.lastStartPad.yaw + Math.PI / 2;
     }
 
     this.hud.setGems(this.gemCount, this.totalGems);
