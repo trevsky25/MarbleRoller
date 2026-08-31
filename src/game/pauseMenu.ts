@@ -4,24 +4,6 @@ import { ResourceIndex } from "../assets/resourceIndex";
 import { listCustomLevels, deleteCustomLevel } from "../editor/customLevel";
 import { settings, updateSettings } from "./settings";
 
-const CARD_CSS =
-  "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);" +
-  "min-width:340px;max-width:440px;max-height:78vh;display:flex;flex-direction:column;" +
-  "background:linear-gradient(180deg,#8ecdf5 0%,#5aa7e0 55%,#4f97d2 100%);" +
-  "border:5px solid #2c5d94;border-radius:26px;box-shadow:0 14px 40px rgba(0,0,20,0.45),inset 0 2px 0 rgba(255,255,255,0.55);" +
-  "padding:22px 26px;pointer-events:auto;";
-
-const TITLE_CSS =
-  "font:800 40px 'Baloo 2','Trebuchet MS',sans-serif;color:#fff;text-align:center;margin:0 0 14px;" +
-  "-webkit-text-stroke:5px rgba(26,54,88,0.9);paint-order:stroke fill;letter-spacing:1px;";
-
-const BUTTON_CSS =
-  "display:block;width:100%;margin:7px 0;padding:10px 18px;cursor:pointer;" +
-  "background:linear-gradient(180deg,#fff3b0 0%,#ffd94d 45%,#f5bd2e 100%);" +
-  "border:3px solid #a06a12;border-radius:999px;" +
-  "font:800 22px 'Baloo 2','Trebuchet MS',sans-serif;color:#5b3a06;text-align:center;" +
-  "box-shadow:0 3px 0 #8a5a0e,inset 0 2px 0 rgba(255,255,255,0.7);";
-
 // The Home-card comic style, shared by Help/Credits and Options
 const COMIC_CARD_CSS =
   "position:absolute;top:50%;left:50%;pointer-events:auto;display:flex;flex-direction:column;" +
@@ -43,7 +25,7 @@ const COMIC_BUTTON_CSS =
   "font:800 26px 'Baloo 2',sans-serif;color:#141414;text-align:center;transition:transform 0.08s;";
 
 const TAB_CSS =
-  "flex:1;padding:6px 4px;cursor:pointer;border:3px solid #2c5d94;border-bottom:none;" +
+  "flex:1;padding:7px 4px;cursor:pointer;border:3px solid #101820;border-bottom:none;" +
   "border-radius:12px 12px 0 0;font:800 15px 'Baloo 2',sans-serif;text-align:center;";
 
 interface LevelEntry {
@@ -101,18 +83,6 @@ export class PauseMenu {
     return btn;
   }
 
-  private button(label: string, onClick: () => void): HTMLButtonElement {
-    const btn = document.createElement("button");
-    btn.textContent = label;
-    btn.style.cssText = BUTTON_CSS;
-    btn.onmouseenter = () => (btn.style.filter = "brightness(1.08)");
-    btn.onmouseleave = () => (btn.style.filter = "");
-    btn.onmousedown = () => (btn.style.transform = "translateY(2px)");
-    btn.onmouseup = () => (btn.style.transform = "");
-    btn.onclick = onClick;
-    return btn;
-  }
-
   open(missionTitle: string): void {
     this.isOpen = true;
     this.root.style.display = "block";
@@ -127,33 +97,35 @@ export class PauseMenu {
   private showMain(missionTitle: string): void {
     this.root.innerHTML = "";
     const card = document.createElement("div");
-    card.style.cssText = CARD_CSS;
+    card.style.cssText = COMIC_CARD_CSS + "width:360px;max-width:90vw;";
 
     const title = document.createElement("h1");
     title.textContent = "Paused";
-    title.style.cssText = TITLE_CSS;
+    title.style.cssText = COMIC_TITLE_CSS;
     card.appendChild(title);
 
     if (missionTitle !== "") {
       const sub = document.createElement("div");
       sub.textContent = missionTitle;
       sub.style.cssText =
-        "font:600 18px 'Baloo 2',sans-serif;color:#eaf6ff;text-align:center;margin:-8px 0 12px;" +
-        "-webkit-text-stroke:2.5px rgba(26,54,88,0.8);paint-order:stroke fill;";
+        "font:800 19px 'Baloo 2',sans-serif;color:#fff;text-align:center;margin:-10px 0 12px;" +
+        "-webkit-text-stroke:3.5px #17293c;paint-order:stroke fill;";
       card.appendChild(sub);
     }
 
-    card.appendChild(this.button("Resume", () => this.onResume?.()));
-    card.appendChild(this.button("Restart Level", () => this.onRestart?.()));
-    card.appendChild(this.button("Level Select", () => void this.showLevelSelect("pause")));
+    card.appendChild(this.comicButton("Resume", () => this.onResume?.()));
+    card.appendChild(this.comicButton("Restart Level", () => this.onRestart?.()));
+    card.appendChild(this.comicButton("Level Select", () => void this.showLevelSelect("pause")));
     if (this.currentCustomName !== null) {
-      card.appendChild(this.button("Edit This Level", () => this.openEditor(this.currentCustomName!)));
+      card.appendChild(this.comicButton("Edit This Level", () => this.openEditor(this.currentCustomName!)));
     }
-    card.appendChild(this.button("Home", () => this.showHome()));
+    card.appendChild(this.comicButton("Home", () => this.showHome()));
 
     const hint = document.createElement("div");
     hint.textContent = "Esc to resume";
-    hint.style.cssText = "font:600 14px 'Baloo 2',sans-serif;color:#dceeff;text-align:center;margin-top:10px;opacity:0.85;";
+    hint.style.cssText =
+      "font:800 14px 'Baloo 2',sans-serif;color:#fff;text-align:center;margin-top:10px;" +
+      "-webkit-text-stroke:2.5px rgba(23,41,60,0.7);paint-order:stroke fill;";
     card.appendChild(hint);
 
     this.root.appendChild(card);
@@ -167,7 +139,7 @@ export class PauseMenu {
     newRow.textContent = "+ New Level";
     newRow.style.cssText =
       "grid-column:1/-1;padding:8px 12px;margin:3px 0;cursor:pointer;border-radius:10px;text-align:center;" +
-      "font:800 17px 'Baloo 2',sans-serif;color:#5b3a06;background:linear-gradient(180deg,#fff3b0,#f5bd2e);border:2px solid #a06a12;";
+      "font:800 17px 'Baloo 2',sans-serif;color:#5b3a06;background:linear-gradient(180deg,#fdfbc0,#efd83f);border:2.5px solid #101820;";
     newRow.onclick = () => this.showNamePrompt(() => void this.showLevelSelect(this.lastLevelSelectOrigin));
     listWrap.appendChild(newRow);
 
@@ -185,7 +157,7 @@ export class PauseMenu {
       editBtn.textContent = "✎";
       editBtn.title = "Edit";
       editBtn.style.cssText =
-        "flex:none;width:30px;height:30px;cursor:pointer;border-radius:8px;border:2px solid #2c5d94;" +
+        "flex:none;width:30px;height:30px;cursor:pointer;border-radius:8px;border:2px solid #101820;" +
         "background:rgba(255,255,255,0.7);font-size:15px;";
       editBtn.onclick = (e) => {
         e.stopPropagation();
@@ -564,11 +536,11 @@ export class PauseMenu {
     this.root.innerHTML = "";
     this.addBackdropIfStandalone();
     const card = document.createElement("div");
-    card.style.cssText = CARD_CSS;
+    card.style.cssText = COMIC_CARD_CSS + "width:340px;max-width:90vw;";
 
     const title = document.createElement("h1");
     title.textContent = "New Custom Level";
-    title.style.cssText = TITLE_CSS.replace("40px", "30px");
+    title.style.cssText = COMIC_TITLE_CSS.replace("46px", "38px");
     card.appendChild(title);
 
     const sub = document.createElement("div");
@@ -584,17 +556,17 @@ export class PauseMenu {
     input.maxLength = 40;
     input.style.cssText =
       "display:block;width:100%;box-sizing:border-box;padding:10px 14px;margin-bottom:12px;" +
-      "border-radius:12px;border:3px solid #2c5d94;background:rgba(255,255,255,0.85);" +
+      "border-radius:12px;border:3px solid #101820;background:rgba(255,255,255,0.9);" +
       "font:600 18px 'Baloo 2',sans-serif;color:#173a5e;outline:none;text-align:center;";
     input.onfocus = () => input.select();
     card.appendChild(input);
 
-    const create = this.button("Create", () => {
+    const create = this.comicButton("Create", () => {
       const name = input.value.trim();
       if (name !== "") this.openEditor(name);
     });
     card.appendChild(create);
-    card.appendChild(this.button("Cancel", onCancel));
+    card.appendChild(this.comicButton("Cancel", onCancel));
 
     input.onkeydown = (e) => {
       if (e.key === "Enter") create.click();
@@ -619,26 +591,27 @@ export class PauseMenu {
     this.addBackdropIfStandalone();
     const card = document.createElement("div");
     // Wider, shorter layout: two-column level grid
-    card.style.cssText = CARD_CSS + "min-width:640px;max-width:760px;max-height:72vh;";
+    card.style.cssText = COMIC_CARD_CSS + "min-width:640px;max-width:760px;max-height:76vh;";
 
     const title = document.createElement("h1");
     title.textContent = "Level Select";
-    title.style.cssText = TITLE_CSS.replace("40px", "32px");
+    title.style.cssText = COMIC_TITLE_CSS;
     card.appendChild(title);
 
     const tabRow = document.createElement("div");
-    tabRow.style.cssText = "display:flex;gap:4px;margin-bottom:0;";
+    tabRow.style.cssText = "display:flex;gap:6px;margin-bottom:0;padding:0 6px;";
     const listWrap = document.createElement("div");
     listWrap.style.cssText =
-      "flex:1;overflow-y:auto;background:rgba(255,255,255,0.28);border:3px solid #2c5d94;border-radius:0 0 14px 14px;padding:8px;min-height:120px;" +
+      "flex:1;overflow-y:auto;background:rgba(255,255,255,0.45);border:3px solid #101820;border-radius:14px;padding:8px;min-height:120px;" +
+      "box-shadow:inset 0 2px 6px rgba(20,20,40,0.25);" +
       "display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;align-content:start;";
 
     const renderList = (category: string): void => {
       this.currentTab = category;
       for (const child of Array.from(tabRow.children) as HTMLElement[]) {
         const active = child.dataset.cat === category;
-        child.style.background = active ? "rgba(255,255,255,0.35)" : "rgba(20,50,90,0.35)";
-        child.style.color = active ? "#fff" : "#cfe4f7";
+        child.style.background = active ? "linear-gradient(180deg,#fdfbc0,#efd83f)" : "rgba(23,41,60,0.55)";
+        child.style.color = active ? "#141414" : "#cfe4f7";
       }
       listWrap.innerHTML = "";
       if (category === "custom") {
@@ -677,13 +650,13 @@ export class PauseMenu {
         num.textContent = entry.level !== null ? String(entry.level) : "–";
         num.style.cssText =
           "flex:none;min-width:30px;height:30px;display:flex;align-items:center;justify-content:center;" +
-          "background:#2c5d94;color:#fff;border-radius:9px;padding:0 4px;" +
+          "background:#17293c;color:#fff;border-radius:9px;padding:0 4px;" +
           "font:800 16px 'Baloo 2',sans-serif;box-shadow:inset 0 -2px 0 rgba(0,0,30,0.3);";
         row.appendChild(num);
 
         const thumb = document.createElement("div");
         thumb.style.cssText =
-          "flex:none;width:72px;height:54px;border-radius:8px;border:2px solid #2c5d94;" +
+          "flex:none;width:72px;height:54px;border-radius:8px;border:2.5px solid #101820;" +
           "background:#9cc4e4 center/cover no-repeat;box-shadow:inset 0 0 4px rgba(0,0,30,0.35);";
         if (previewUrl !== null) thumb.style.backgroundImage = `url("${previewUrl}")`;
         row.appendChild(thumb);
@@ -722,8 +695,8 @@ export class PauseMenu {
     card.appendChild(tabRow);
     card.appendChild(listWrap);
 
-    const back = this.button("Back", () => (origin === "home" ? this.showHome() : this.showMain("")));
-    back.style.marginTop = "12px";
+    const back = this.comicButton("Back", () => (origin === "home" ? this.showHome() : this.showMain("")));
+    back.style.marginTop = "14px";
     card.appendChild(back);
 
     this.root.appendChild(card);
