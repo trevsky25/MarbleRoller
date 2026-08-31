@@ -239,7 +239,44 @@ export class PauseMenu {
     }
   }
 
-  // MBG-style Home screen over the classic backdrop art
+  // The starburst MARBLE BLAST logo as crisp inline SVG.
+  private static logoSvg(): string {
+    const spikes = (count: number, rOuter: number, rInner: number, offset: number): string => {
+      const pts: string[] = [];
+      for (let i = 0; i < count * 2; i++) {
+        const r = i % 2 === 0 ? rOuter : rInner;
+        const a = (i / (count * 2)) * Math.PI * 2 + offset;
+        pts.push(`${(100 + Math.cos(a) * r).toFixed(1)},${(100 + Math.sin(a) * r).toFixed(1)}`);
+      }
+      return pts.join(" ");
+    };
+    return `
+    <svg viewBox="0 0 200 200" style="width:100%;height:100%;overflow:visible">
+      <polygon points="${spikes(11, 98, 52, 0.28)}" fill="#c96a12"/>
+      <polygon points="${spikes(11, 92, 50, 0)}" fill="#f6a41c"/>
+      <polygon points="${spikes(11, 80, 47, 0.14)}" fill="#fbca3c"/>
+      <circle cx="100" cy="100" r="52" fill="#1d4e9e"/>
+      <circle cx="100" cy="100" r="52" fill="url(#mbSphere)"/>
+      <defs>
+        <radialGradient id="mbSphere" cx="0.35" cy="0.3">
+          <stop offset="0%" stop-color="#5f8fd6"/>
+          <stop offset="70%" stop-color="#1d4e9e"/>
+          <stop offset="100%" stop-color="#123468"/>
+        </radialGradient>
+      </defs>
+      <g transform="rotate(-8 100 100)">
+        <text x="100" y="92" text-anchor="middle" font-family="'Baloo 2',sans-serif" font-weight="800" font-style="italic"
+          font-size="34" fill="#ffffff" stroke="#a01818" stroke-width="7" paint-order="stroke">MARBLE</text>
+        <text x="100" y="126" text-anchor="middle" font-family="'Baloo 2',sans-serif" font-weight="800" font-style="italic"
+          font-size="34" fill="#ffffff" stroke="#a01818" stroke-width="7" paint-order="stroke">BLAST</text>
+        <path d="M 44 138 Q 100 152 156 134" stroke="#d02020" stroke-width="7" fill="none" stroke-linecap="round"/>
+        <path d="M 44 146 Q 100 160 156 142" stroke="#ffffff" stroke-width="5" fill="none" stroke-linecap="round"/>
+      </g>
+    </svg>`;
+  }
+
+  // Faithful recreation of the original MBG Home card — tilted blue panel,
+  // starburst logo, yellow pill buttons — rendered as crisp vector UI.
   private showHome(): void {
     this.root.innerHTML = "";
     const backdropUrl = this.index.resolve("data/ui/background.jpg");
@@ -250,19 +287,67 @@ export class PauseMenu {
     }
 
     const card = document.createElement("div");
-    card.style.cssText = CARD_CSS;
+    card.style.cssText =
+      "position:absolute;top:50%;left:50%;width:428px;min-height:540px;padding:126px 36px 54px;pointer-events:auto;" +
+      "display:flex;flex-direction:column;justify-content:center;box-sizing:content-box;" +
+      "transform:translate(-50%,-50%) perspective(1100px) rotateZ(-2.5deg) rotateY(-3deg);" +
+      "background:linear-gradient(168deg,#9ed3f2 0%,#6fb3e6 45%,#5aa0da 100%);" +
+      "border:4px solid #101820;border-radius:34px 30px 40px 30px;" +
+      "box-shadow:10px 14px 0 rgba(20,20,40,0.35),inset 0 3px 0 rgba(255,255,255,0.6);";
 
-    const title = document.createElement("h1");
-    title.textContent = "Marble Blast";
-    title.style.cssText = TITLE_CSS;
-    card.appendChild(title);
+    // Starburst logo overlapping the top-left corner
+    const logo = document.createElement("div");
+    logo.style.cssText = "position:absolute;top:-72px;left:-62px;width:246px;height:246px;filter:drop-shadow(4px 6px 0 rgba(20,20,40,0.35));";
+    logo.innerHTML = PauseMenu.logoSvg();
+    card.appendChild(logo);
 
-    card.appendChild(this.button("Play", () => void this.showLevelSelect("home")));
-    card.appendChild(
-      this.button("Build Custom Level", () => this.showNamePrompt(() => this.showHome())),
-    );
+    const homeTitle = document.createElement("div");
+    homeTitle.textContent = this.standalone ? "Home" : "Paused";
+    homeTitle.style.cssText =
+      "position:absolute;top:26px;right:40px;font:800 italic 66px 'Baloo 2',sans-serif;color:#f5872e;" +
+      "-webkit-text-stroke:7px #17293c;paint-order:stroke fill;transform:rotate(-2deg);" +
+      "text-shadow:3px 4px 0 rgba(20,20,40,0.3);";
+    card.appendChild(homeTitle);
+
+    let pillIndex = 0;
+    const pill = (label: string, icon: string, iconLeft: boolean, onClick: () => void): HTMLButtonElement => {
+      const btn = document.createElement("button");
+      const wobble = [-0.8, 0.9, -0.5][pillIndex % 3]!;
+      pillIndex++;
+      btn.style.cssText =
+        "display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;margin:14px 0;" +
+        "padding:19px 30px;cursor:pointer;border:4px solid #101820;border-radius:999px;" +
+        "background:linear-gradient(180deg,#fdfbc0 0%,#f8ee7a 40%,#efd83f 100%);" +
+        "box-shadow:5px 7px 0 rgba(20,20,40,0.4),inset 0 2px 0 rgba(255,255,255,0.8);" +
+        `transition:transform 0.08s;transform:rotate(${wobble}deg);`;
+      const text = document.createElement("span");
+      text.textContent = label;
+      text.style.cssText = "font:800 44px/1.1 'Baloo 2',sans-serif;color:#141414;letter-spacing:0.5px;white-space:nowrap;";
+      const ico = document.createElement("span");
+      ico.textContent = icon;
+      ico.style.cssText = "font-size:48px;line-height:1;filter:drop-shadow(1px 2px 0 rgba(20,20,40,0.3));";
+      if (iconLeft) btn.append(ico, text);
+      else btn.append(text, ico);
+      if (iconLeft) text.style.marginRight = "auto";
+      else text.style.marginRight = "0";
+      btn.onmouseenter = () => {
+        btn.style.transform = `rotate(${wobble}deg) scale(1.04)`;
+        btn.style.filter = "brightness(1.07)";
+      };
+      btn.onmouseleave = () => {
+        btn.style.transform = `rotate(${wobble}deg)`;
+        btn.style.filter = "";
+      };
+      btn.onmousedown = () => (btn.style.transform = `rotate(${wobble}deg) scale(0.97) translateY(3px)`);
+      btn.onmouseup = () => (btn.style.transform = `rotate(${wobble}deg) scale(1.04)`);
+      btn.onclick = onClick;
+      return btn;
+    };
+
+    card.appendChild(pill("Play", "🏸", false, () => void this.showLevelSelect("home")));
+    card.appendChild(pill("Build Level", "🔨", true, () => this.showNamePrompt(() => this.showHome())));
     if (!this.standalone) {
-      card.appendChild(this.button("Back to Game", () => this.onResume?.()));
+      card.appendChild(pill("Back to Game", "⬅️", true, () => this.onResume?.()));
     }
 
     this.root.appendChild(card);
