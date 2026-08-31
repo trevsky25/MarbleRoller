@@ -243,6 +243,14 @@ export class Editor {
         `border-radius:9px;border:2px solid ${selected ? "#ffe37a" : "#2c5d94"};` +
         `background:${selected ? "rgba(255,227,122,0.35)" : "rgba(255,255,255,0.15)"};` +
         `font:600 14px 'Baloo 2',sans-serif;color:#fff;`;
+      btn.onmouseenter = () => {
+        btn.style.filter = "brightness(1.18)";
+        btn.style.transform = "translateX(2px)";
+      };
+      btn.onmouseleave = () => {
+        btn.style.filter = "";
+        btn.style.transform = "";
+      };
       btn.onclick = () => {
         onClick();
         this.buildPanel();
@@ -297,6 +305,8 @@ export class Editor {
           b.style.cssText =
             "width:30px;height:26px;cursor:pointer;border-radius:7px;border:2px solid #2c5d94;" +
             "background:rgba(255,255,255,0.25);color:#fff;font:800 15px 'Baloo 2',sans-serif;";
+          b.onmouseenter = () => (b.style.background = "rgba(255,227,122,0.55)");
+          b.onmouseleave = () => (b.style.background = "rgba(255,255,255,0.25)");
         }
         const val = document.createElement("div");
         val.textContent = value.toFixed(1);
@@ -318,6 +328,8 @@ export class Editor {
         b.style.cssText =
           "flex:1;padding:5px;cursor:pointer;border-radius:8px;border:2px solid #2c5d94;" +
           "background:rgba(255,255,255,0.25);color:#fff;font:700 13px 'Baloo 2',sans-serif;";
+        b.onmouseenter = () => (b.style.background = "rgba(255,227,122,0.55)");
+        b.onmouseleave = () => (b.style.background = "rgba(255,255,255,0.25)");
         b.onclick = onClick;
         return b;
       };
@@ -350,6 +362,16 @@ export class Editor {
         `height:34px;border-radius:8px;cursor:pointer;background:#557 center/cover;` +
         `border:3px solid ${selected ? "#ffe37a" : "#2c5d94"};` +
         (url !== null ? `background-image:url("${url}");` : "");
+      swatch.onmouseenter = () => {
+        swatch.style.transform = "scale(1.08)";
+        swatch.style.boxShadow = "0 0 8px rgba(255,227,122,0.9)";
+        surfLabel.textContent = surface.label;
+      };
+      swatch.onmouseleave = () => {
+        swatch.style.transform = "";
+        swatch.style.boxShadow = "";
+        surfLabel.textContent = this.currentSurface.label;
+      };
       swatch.onclick = () => {
         this.currentSurface = surface;
         this.buildPanel();
@@ -670,12 +692,30 @@ export class Editor {
 
     // While dragging the gizmo or a resize handle: skip hover/ghost
     if (this.tcDragging || this.resizing !== null) {
+      if (this.tcDragging) this.setCursor("move");
+      // resizing keeps the directional cursor it started with
       this.selectedOutline?.update();
       this.ghost?.removeFromParent();
       this.ghost = null;
       this.graphics.render();
       return;
     }
+    if (this.looking) this.setCursor("grabbing");
+
+    // Resize-handle hover: grow the handle and show a directional cursor
+    let handleHover: { mesh: THREE.Mesh; face: string } | null = null;
+    if (this.selected !== null && this.resizeHandles.length > 0 && !this.looking) {
+      this.raycaster.setFromCamera(this.cursorNdc, this.camera);
+      const handleHits = this.raycaster.intersectObjects(
+        this.resizeHandles.filter((h) => h.mesh.parent !== null).map((h) => h.mesh),
+        false,
+      );
+      const first = handleHits[0];
+      if (first !== undefined) {
+        handleHover = this.resizeHandles.find((h) => h.mesh === first.object) ?? null;
+      }
+    }
+    this.setHandleHover(handleHover);
 
     // Hover highlight (wireframe outline; materials are shared across blocks)
     const hit = this.cursorHit();
@@ -716,6 +756,24 @@ export class Editor {
       this.scene.add(marker);
     }
 
+    // Cursor affordances: resize handles > gizmo > selectable > placement
+    if (!this.looking) {
+      if (handleHover !== null) {
+        const { block } = this.selectedData();
+        if (block !== null) {
+          this.setCursor(this.resizeCursorFor(handleHover.mesh, this.faceWorldDir(block, handleHover.face)));
+        }
+      } else if (this.transformControls.axis !== null && this.selected !== null) {
+        this.setCursor("move");
+      } else if (this.tool.kind === "select") {
+        this.setCursor(newHovered !== null ? "pointer" : "default");
+      } else if (this.tool.kind === "block" || this.tool.kind === "item") {
+        this.setCursor("crosshair");
+      } else {
+        this.setCursor("default");
+      }
+    }
+
     this.graphics.render();
   }
 
@@ -736,6 +794,41 @@ export class Editor {
     t0: number;
     start: LevelBlock;
   } | null = null;
+  private hoveredHandle: { mesh: THREE.Mesh; face: string } | null = null;
+  private activeCursor = "";
+
+  private setCursor(cursor: string): void {
+    if (cursor === this.activeCursor) return;
+    this.activeCursor = cursor;
+    this.renderer.domElement.style.cursor = cursor;
+  }
+
+  // Pick the directional resize cursor matching the axis direction on screen.
+  private resizeCursorFor(handle: THREE.Mesh, axisDir: THREE.Vector3): string {
+    const p0 = handle.position.clone().project(this.camera);
+    const p1 = handle.position.clone().add(axisDir).project(this.camera);
+    const dx = p1.x - p0.x;
+    const dy = -(p1.y - p0.y); // screen y grows downward
+    let angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+    if (angle < 0) angle += 180;
+    if (angle < 22.5 || angle >= 157.5) return "ew-resize";
+    if (angle < 67.5) return "nwse-resize";
+    if (angle < 112.5) return "ns-resize";
+    return "nesw-resize";
+  }
+
+  private setHandleHover(handle: { mesh: THREE.Mesh; face: string } | null): void {
+    if (this.hoveredHandle === handle) return;
+    if (this.hoveredHandle !== null) {
+      this.hoveredHandle.mesh.scale.setScalar(1);
+      (this.hoveredHandle.mesh.material as THREE.MeshBasicMaterial).opacity = 0.9;
+    }
+    this.hoveredHandle = handle;
+    if (handle !== null) {
+      handle.mesh.scale.setScalar(1.45);
+      (handle.mesh.material as THREE.MeshBasicMaterial).opacity = 1;
+    }
+  }
 
   private static rotXY(x: number, y: number, rot: number): [number, number] {
     switch (((rot % 4) + 4) % 4) {
