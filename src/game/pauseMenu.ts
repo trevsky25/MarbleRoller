@@ -22,6 +22,26 @@ const BUTTON_CSS =
   "font:800 22px 'Baloo 2','Trebuchet MS',sans-serif;color:#5b3a06;text-align:center;" +
   "box-shadow:0 3px 0 #8a5a0e,inset 0 2px 0 rgba(255,255,255,0.7);";
 
+// The Home-card comic style, shared by Help/Credits and Options
+const COMIC_CARD_CSS =
+  "position:absolute;top:50%;left:50%;pointer-events:auto;display:flex;flex-direction:column;" +
+  "transform:translate(-50%,-50%) perspective(1100px) rotateZ(-1.6deg) rotateY(-2deg);" +
+  "background:linear-gradient(168deg,#9ed3f2 0%,#6fb3e6 45%,#5aa0da 100%);" +
+  "border:4px solid #101820;border-radius:30px;" +
+  "box-shadow:9px 12px 0 rgba(20,20,40,0.35),inset 0 3px 0 rgba(255,255,255,0.6);padding:24px 30px 28px;";
+
+const COMIC_TITLE_CSS =
+  "font:800 italic 46px 'Baloo 2',sans-serif;color:#f5872e;text-align:center;margin:0 0 14px;" +
+  "-webkit-text-stroke:6px #17293c;paint-order:stroke fill;transform:rotate(-1.2deg);" +
+  "text-shadow:3px 4px 0 rgba(20,20,40,0.3);";
+
+const COMIC_BUTTON_CSS =
+  "display:block;width:100%;margin:9px 0;padding:12px 24px;cursor:pointer;" +
+  "border:3.5px solid #101820;border-radius:999px;" +
+  "background:linear-gradient(180deg,#fdfbc0 0%,#f8ee7a 40%,#efd83f 100%);" +
+  "box-shadow:4px 6px 0 rgba(20,20,40,0.4),inset 0 2px 0 rgba(255,255,255,0.8);" +
+  "font:800 26px 'Baloo 2',sans-serif;color:#141414;text-align:center;transition:transform 0.08s;";
+
 const TAB_CSS =
   "flex:1;padding:6px 4px;cursor:pointer;border:3px solid #2c5d94;border-bottom:none;" +
   "border-radius:12px 12px 0 0;font:800 15px 'Baloo 2',sans-serif;text-align:center;";
@@ -61,6 +81,24 @@ export class PauseMenu {
     this.root = document.createElement("div");
     this.root.style.cssText = "position:absolute;inset:0;display:none;background:rgba(10,20,45,0.45);backdrop-filter:blur(3px);z-index:20;";
     document.body.appendChild(this.root);
+  }
+
+  private comicButton(label: string, onClick: () => void): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    btn.style.cssText = COMIC_BUTTON_CSS;
+    btn.onmouseenter = () => {
+      btn.style.transform = "scale(1.03)";
+      btn.style.filter = "brightness(1.07)";
+    };
+    btn.onmouseleave = () => {
+      btn.style.transform = "";
+      btn.style.filter = "";
+    };
+    btn.onmousedown = () => (btn.style.transform = "scale(0.98) translateY(2px)");
+    btn.onmouseup = () => (btn.style.transform = "scale(1.03)");
+    btn.onclick = onClick;
+    return btn;
   }
 
   private button(label: string, onClick: () => void): HTMLButtonElement {
@@ -360,22 +398,22 @@ export class PauseMenu {
     this.root.innerHTML = "";
     this.addBackdropIfStandalone();
     const card = document.createElement("div");
-    card.style.cssText = CARD_CSS + "min-width:520px;max-width:600px;max-height:80vh;";
+    card.style.cssText = COMIC_CARD_CSS + "width:560px;max-width:90vw;max-height:80vh;";
 
     const title = document.createElement("h1");
     title.textContent = "Help & Credits";
-    title.style.cssText = TITLE_CSS.replace("40px", "32px");
+    title.style.cssText = COMIC_TITLE_CSS;
     card.appendChild(title);
 
     const content = document.createElement("div");
     content.style.cssText =
-      "flex:1;overflow-y:auto;background:rgba(255,255,255,0.28);border:3px solid #2c5d94;border-radius:14px;padding:14px 18px;" +
-      "font:600 15px/1.5 'Baloo 2',sans-serif;color:#12314f;";
+      "flex:1;overflow-y:auto;background:rgba(255,255,255,0.45);border:3px solid #101820;border-radius:16px;padding:14px 18px;" +
+      "box-shadow:inset 0 2px 6px rgba(20,20,40,0.25);font:600 15px/1.5 'Baloo 2',sans-serif;color:#12314f;";
 
     const section = (heading: string): void => {
       const h = document.createElement("div");
       h.textContent = heading;
-      h.style.cssText = "font:800 19px 'Baloo 2',sans-serif;color:#0d2c4d;margin:10px 0 4px;border-bottom:2px solid rgba(44,93,148,0.4);";
+      h.style.cssText = "font:800 20px 'Baloo 2',sans-serif;color:#c05a10;margin:10px 0 4px;border-bottom:2.5px solid rgba(16,24,32,0.45);";
       content.appendChild(h);
     };
     const line = (html: string): void => {
@@ -385,7 +423,8 @@ export class PauseMenu {
       content.appendChild(p);
     };
     const kbd = (k: string): string =>
-      `<span style="display:inline-block;background:#2c5d94;color:#fff;border-radius:6px;padding:0 7px;font-weight:800;font-size:13px;">${k}</span>`;
+      `<span style="display:inline-block;background:linear-gradient(180deg,#fdfbc0,#efd83f);color:#141414;border:2px solid #101820;` +
+      `border-radius:7px;padding:0 7px;font-weight:800;font-size:13px;box-shadow:0 2px 0 rgba(20,20,40,0.4);">${k}</span>`;
 
     section("Goal");
     line("Roll your marble to the finish pad as fast as you can. Some levels hide gems — collect every gem before the finish counts!");
@@ -409,8 +448,8 @@ export class PauseMenu {
 
     card.appendChild(content);
 
-    const back = this.button("Back", () => (this.standalone ? this.showHome() : this.showMain("")));
-    back.style.marginTop = "12px";
+    const back = this.comicButton("Back", () => (this.standalone ? this.showHome() : this.showMain("")));
+    back.style.marginTop = "14px";
     card.appendChild(back);
 
     this.root.appendChild(card);
@@ -420,11 +459,11 @@ export class PauseMenu {
     this.root.innerHTML = "";
     this.addBackdropIfStandalone();
     const card = document.createElement("div");
-    card.style.cssText = CARD_CSS + "min-width:420px;";
+    card.style.cssText = COMIC_CARD_CSS + "width:400px;max-width:90vw;";
 
     const title = document.createElement("h1");
     title.textContent = "Options";
-    title.style.cssText = TITLE_CSS.replace("40px", "32px");
+    title.style.cssText = COMIC_TITLE_CSS;
     card.appendChild(title);
 
     const row = (label: string): HTMLDivElement => {
@@ -432,8 +471,8 @@ export class PauseMenu {
       wrap.style.cssText = "margin:10px 0;";
       const lab = document.createElement("div");
       lab.textContent = label;
-      lab.style.cssText = "font:800 17px 'Baloo 2',sans-serif;color:#fff;margin-bottom:5px;" +
-        "-webkit-text-stroke:3px rgba(26,54,88,0.7);paint-order:stroke fill;";
+      lab.style.cssText = "font:800 20px 'Baloo 2',sans-serif;color:#fff;margin-bottom:6px;" +
+        "-webkit-text-stroke:4px #17293c;paint-order:stroke fill;";
       wrap.appendChild(lab);
       card.appendChild(wrap);
       return wrap;
@@ -441,18 +480,26 @@ export class PauseMenu {
 
     const toggleChips = (wrap: HTMLDivElement, choices: [string, string][], current: string, onPick: (id: string) => void): void => {
       const chipRow = document.createElement("div");
-      chipRow.style.cssText = "display:flex;gap:8px;";
+      chipRow.style.cssText = "display:flex;gap:10px;";
       for (const [id, label] of choices) {
         const chip = document.createElement("button");
         chip.textContent = label;
         const selected = id === current;
         chip.style.cssText =
-          `flex:1;padding:8px;cursor:pointer;border-radius:999px;font:800 16px 'Baloo 2',sans-serif;` +
-          `border:3px solid ${selected ? "#ffe37a" : "#2c5d94"};` +
-          `background:${selected ? "linear-gradient(180deg,#fff3b0,#f5bd2e)" : "rgba(255,255,255,0.2)"};` +
-          `color:${selected ? "#5b3a06" : "#dceeff"};`;
-        chip.onmouseenter = () => (chip.style.filter = "brightness(1.12)");
-        chip.onmouseleave = () => (chip.style.filter = "");
+          `flex:1;padding:9px;cursor:pointer;border-radius:999px;font:800 18px 'Baloo 2',sans-serif;` +
+          `border:3px solid #101820;transition:transform 0.08s;` +
+          (selected
+            ? "background:linear-gradient(180deg,#fdfbc0 0%,#f8ee7a 40%,#efd83f 100%);color:#141414;" +
+              "box-shadow:3px 4px 0 rgba(20,20,40,0.4),inset 0 2px 0 rgba(255,255,255,0.8);"
+            : "background:rgba(255,255,255,0.35);color:#2a3a4a;box-shadow:inset 0 2px 4px rgba(20,20,40,0.25);");
+        chip.onmouseenter = () => {
+          chip.style.filter = "brightness(1.1)";
+          chip.style.transform = "scale(1.03)";
+        };
+        chip.onmouseleave = () => {
+          chip.style.filter = "";
+          chip.style.transform = "";
+        };
         chip.onclick = () => {
           onPick(id);
           this.showOptions();
@@ -505,8 +552,8 @@ export class PauseMenu {
       (id) => updateSettings({ invertY: id === "on" }),
     );
 
-    const back = this.button("Back", () => (this.standalone ? this.showHome() : this.showMain("")));
-    back.style.marginTop = "14px";
+    const back = this.comicButton("Back", () => (this.standalone ? this.showHome() : this.showMain("")));
+    back.style.marginTop = "16px";
     card.appendChild(back);
 
     this.root.appendChild(card);
