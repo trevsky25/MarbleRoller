@@ -18,6 +18,17 @@ async function main(): Promise<void> {
   const misPath = params.get("mis") ?? DEFAULT_MIS;
 
   const status = document.getElementById("status")!;
+
+  // No target chosen: boot to the Home menu — the game's real entry point.
+  // Play/Build Custom Level navigate with ?mis / ?custom / ?edit.
+  if (params.get("mis") === null && params.get("custom") === null && params.get("edit") === null) {
+    status.textContent = "";
+    const homeIndex = await ResourceIndex.load();
+    const homeMenu = new PauseMenu(homeIndex);
+    homeMenu.openHome();
+    return;
+  }
+
   status.textContent = `Loading ${misPath}…`;
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });

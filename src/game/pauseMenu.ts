@@ -36,6 +36,16 @@ export class PauseMenu {
   onRestart: (() => void) | null = null;
   // set when the session is playing a custom level (enables Edit This Level)
   currentCustomName: string | null = null;
+  // standalone home mode: the menu IS the app (no game behind it)
+  private standalone = false;
+
+  // Entry point for booting straight into the Home screen.
+  openHome(): void {
+    this.standalone = true;
+    this.isOpen = true;
+    this.root.style.display = "block";
+    this.showHome();
+  }
 
   private root: HTMLDivElement;
   private index: ResourceIndex;
@@ -231,7 +241,9 @@ export class PauseMenu {
         if (name !== null && name.trim() !== "") this.openEditor(name.trim());
       }),
     );
-    card.appendChild(this.button("Back to Game", () => this.onResume?.()));
+    if (!this.standalone) {
+      card.appendChild(this.button("Back to Game", () => this.onResume?.()));
+    }
 
     this.root.appendChild(card);
   }
