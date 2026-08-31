@@ -226,7 +226,7 @@ export class PauseMenu {
 
     card.appendChild(this.button("Play", () => void this.showLevelSelect("home")));
     card.appendChild(
-      this.button("Level Editor", () => {
+      this.button("Build Custom Level", () => {
         const name = prompt("Name for your custom level (sandbox — official levels can't be edited):", "My Level");
         if (name !== null && name.trim() !== "") this.openEditor(name.trim());
       }),

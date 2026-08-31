@@ -2,6 +2,7 @@
 // blocks/ramps and game shapes, hover-delete, save/export, and test-play
 // handoff. Runs as its own mode instead of the game loop.
 import * as THREE from "three";
+import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { ResourceIndex } from "../assets/resourceIndex";
 import { Graphics } from "../render/graphics";
 import { parseDts } from "../torque/dts";
@@ -49,7 +50,13 @@ const PANEL_CSS =
   "border-left:4px solid #2c5d94;padding:12px;pointer-events:auto;" +
   "font-family:'Baloo 2','Trebuchet MS',sans-serif;color:#fff;";
 
-type Tool = { kind: "block"; shape: "box" | "ramp"; size: BlockSizeDef } | { kind: "item"; datablock: string } | { kind: "delete" };
+type Tool =
+  | { kind: "select" }
+  | { kind: "block"; shape: "box" | "ramp"; size: BlockSizeDef }
+  | { kind: "item"; datablock: string }
+  | { kind: "delete" };
+
+const GRID_STEP = 0.5;
 
 export class Editor {
   private scene: THREE.Scene;
@@ -112,6 +119,18 @@ export class Editor {
     this.groundPlane = new THREE.Mesh(planeGeo, new THREE.MeshBasicMaterial({ visible: false }));
     scene.add(this.groundPlane);
 
+    // Axis-arrows gizmo for moving selected objects, snapped to the grid
+    this.transformControls = new TransformControls(camera, renderer.domElement);
+    this.transformControls.setMode("translate");
+    this.transformControls.setTranslationSnap(GRID_STEP);
+    this.transformControls.setSize(0.85);
+    const tcAny = this.transformControls as unknown as { getHelper?: () => THREE.Object3D };
+    scene.add(tcAny.getHelper !== undefined ? tcAny.getHelper() : (this.transformControls as unknown as THREE.Object3D));
+    this.transformControls.addEventListener("dragging-changed", (e: { value?: unknown }) => {
+      this.tcDragging = e.value === true;
+      if (!this.tcDragging) this.commitTransform();
+    });
+
     this.panel = document.createElement("div");
     this.panel.style.cssText = PANEL_CSS;
     document.body.appendChild(this.panel);
@@ -121,7 +140,7 @@ export class Editor {
       "position:absolute;left:10px;bottom:10px;color:#fff;font:600 14px 'Baloo 2',sans-serif;" +
       "-webkit-text-stroke:3px rgba(20,20,30,0.8);paint-order:stroke fill;pointer-events:none;z-index:15;";
     this.statusDiv.textContent =
-      "LMB place · hover + X delete · RMB-drag look · WASD move · Q/E down/up · R rotate · Shift fast";
+      "LMB place · Alt+click or Select tool to move (drag arrows / arrow keys / PgUp-PgDn) · X delete · C copy · R rotate · RMB-drag look · WASD fly";
     document.body.appendChild(this.statusDiv);
 
     this.buildPanel();
@@ -167,9 +186,15 @@ export class Editor {
     }
   }
 
+  // Editor block meshes carry origin-local geometry (rotation baked) and a
+  // real mesh position, so the gizmo sits on the block and moves are cheap.
+  private localBlockGeometry(block: LevelBlock): THREE.BufferGeometry {
+    return blockPreviewGeometry({ ...block, x: 0, y: 0, z: 0 });
+  }
+
   private addBlockMesh(block: LevelBlock): void {
-    const geometry = blockPreviewGeometry(block);
-    const mesh = new THREE.Mesh(geometry, this.blockMaterial(block.surface));
+    const mesh = new THREE.Mesh(this.localBlockGeometry(block), this.blockMaterial(block.surface));
+    mesh.position.set(block.x, block.y, block.z);
     mesh.userData.block = block;
     this.blocksGroup.add(mesh);
     this.blockMeshes.push(mesh);
@@ -237,6 +262,71 @@ export class Editor {
       "font:600 10.5px 'Baloo 2',sans-serif;color:#0d2c4d;background:#ffe37a;border-radius:6px;" +
       "padding:2px 6px;margin-bottom:6px;display:inline-block;";
     this.panel.appendChild(badge);
+
+    section("Tools");
+    this.panel.appendChild(
+      chip("🖱 Select / Move", this.tool.kind === "select", () => (this.tool = { kind: "select" })),
+    );
+
+    // Selection details: axis steppers for precise grid movement
+    const { block: selBlock, item: selItem } = this.selectedData();
+    if (selBlock !== null || selItem !== null) {
+      const box = document.createElement("div");
+      box.style.cssText =
+        "margin:6px 0;padding:8px;border-radius:10px;background:rgba(20,50,90,0.45);border:2px solid #33ff77;";
+      const what = document.createElement("div");
+      what.textContent =
+        selBlock !== null
+          ? `${selBlock.shape === "ramp" ? "Ramp" : "Block"} ${selBlock.sx}×${selBlock.sy}×${selBlock.sz} · ${surfaceById(selBlock.surface).label}`
+          : (selItem?.datablock ?? "");
+      what.style.cssText = "font:800 13px 'Baloo 2',sans-serif;color:#7dffab;margin-bottom:4px;";
+      box.appendChild(what);
+
+      const pos = selBlock ?? selItem!;
+      const axisRow = (label: string, value: number, dx: number, dy: number, dz: number): HTMLDivElement => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:5px;margin:3px 0;";
+        const lab = document.createElement("div");
+        lab.textContent = label;
+        lab.style.cssText = "width:16px;font:800 14px 'Baloo 2',sans-serif;color:#ffe37a;";
+        const minus = document.createElement("button");
+        minus.textContent = "−";
+        const plus = document.createElement("button");
+        plus.textContent = "+";
+        for (const b of [minus, plus]) {
+          b.style.cssText =
+            "width:30px;height:26px;cursor:pointer;border-radius:7px;border:2px solid #2c5d94;" +
+            "background:rgba(255,255,255,0.25);color:#fff;font:800 15px 'Baloo 2',sans-serif;";
+        }
+        const val = document.createElement("div");
+        val.textContent = value.toFixed(1);
+        val.style.cssText = "flex:1;text-align:center;font:600 14px 'Baloo 2',sans-serif;color:#fff;";
+        minus.onclick = () => this.moveSelected(-dx, -dy, -dz);
+        plus.onclick = () => this.moveSelected(dx, dy, dz);
+        row.append(lab, minus, val, plus);
+        return row;
+      };
+      box.appendChild(axisRow("X", pos.x, GRID_STEP, 0, 0));
+      box.appendChild(axisRow("Y", pos.y, 0, GRID_STEP, 0));
+      box.appendChild(axisRow("Z", pos.z, 0, 0, GRID_STEP));
+
+      const btnRow = document.createElement("div");
+      btnRow.style.cssText = "display:flex;gap:5px;margin-top:5px;";
+      const mkBtn = (label: string, onClick: () => void): HTMLButtonElement => {
+        const b = document.createElement("button");
+        b.textContent = label;
+        b.style.cssText =
+          "flex:1;padding:5px;cursor:pointer;border-radius:8px;border:2px solid #2c5d94;" +
+          "background:rgba(255,255,255,0.25);color:#fff;font:700 13px 'Baloo 2',sans-serif;";
+        b.onclick = onClick;
+        return b;
+      };
+      btnRow.appendChild(mkBtn("⟳ Rotate", () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyR" }))));
+      btnRow.appendChild(mkBtn("⧉ Copy", () => this.duplicateSelected()));
+      btnRow.appendChild(mkBtn("🗑 Delete", () => this.selected !== null && this.deleteObject(this.selected)));
+      box.appendChild(btnRow);
+      this.panel.appendChild(box);
+    }
 
     section("Blocks");
     for (const size of BLOCK_SIZES) {
@@ -355,9 +445,54 @@ export class Editor {
     this.keys.add(e.code);
     if (e.code === "KeyR" && !e.repeat) {
       this.toolRot = (this.toolRot + 1) % 4;
+      // R also rotates the selected object
+      const { block, item } = this.selectedData();
+      if (block !== null) {
+        block.rot = (block.rot + 1) % 4;
+        const mesh = this.selected as THREE.Mesh;
+        mesh.geometry.dispose();
+        mesh.geometry = this.localBlockGeometry(block);
+        this.selectedOutline?.update();
+      } else if (item !== null && this.selected !== null) {
+        item.rot = (item.rot + 1) % 4;
+        this.selected.rotation.z = (item.rot * Math.PI) / 2;
+      }
     }
-    if ((e.code === "KeyX" || e.code === "Delete") && this.hovered !== null) {
-      this.deleteObject(this.hovered);
+    if (e.code === "KeyX" || e.code === "Delete") {
+      if (this.selected !== null) this.deleteObject(this.selected);
+      else if (this.hovered !== null) this.deleteObject(this.hovered);
+    }
+    if (e.code === "Escape") {
+      if (this.selected !== null) this.select(null);
+      else {
+        this.tool = { kind: "select" };
+        this.buildPanel();
+      }
+    }
+    if (e.code === "KeyC" && !e.repeat && this.selected !== null) this.duplicateSelected();
+
+    // Arrow keys nudge the selection on the grid; PageUp/Down for height
+    if (this.selected !== null) {
+      const step = GRID_STEP;
+      if (e.code === "ArrowLeft") {
+        this.moveSelected(-step, 0, 0);
+        e.preventDefault();
+      } else if (e.code === "ArrowRight") {
+        this.moveSelected(step, 0, 0);
+        e.preventDefault();
+      } else if (e.code === "ArrowUp") {
+        this.moveSelected(0, step, 0);
+        e.preventDefault();
+      } else if (e.code === "ArrowDown") {
+        this.moveSelected(0, -step, 0);
+        e.preventDefault();
+      } else if (e.code === "PageUp") {
+        this.moveSelected(0, 0, step);
+        e.preventDefault();
+      } else if (e.code === "PageDown") {
+        this.moveSelected(0, 0, -step);
+        e.preventDefault();
+      }
     }
   };
 
@@ -368,9 +503,18 @@ export class Editor {
   private onMouseDown = (e: MouseEvent): void => {
     if (e.button === 2) {
       this.looking = true;
-    } else if (e.button === 0) {
-      this.placeAtCursor();
+      return;
     }
+    if (e.button !== 0) return;
+    // Clicks on the gizmo belong to TransformControls
+    if (this.tcDragging || (this.transformControls.axis !== null && this.selected !== null)) return;
+
+    if (this.tool.kind === "select" || e.altKey) {
+      const hit = this.cursorHit();
+      this.select(hit?.object ?? null);
+      return;
+    }
+    this.placeAtCursor();
   };
 
   private onMouseUp = (e: MouseEvent): void => {
@@ -439,7 +583,7 @@ export class Editor {
       this.level.blocks.push(block);
       this.addBlockMesh(block);
       this.buildPanel();
-    } else {
+    } else if (this.tool.kind === "item") {
       const item: LevelItem = {
         datablock: this.tool.datablock,
         x: this.snap(hit.point.x),
@@ -472,6 +616,7 @@ export class Editor {
       this.itemGroups = this.itemGroups.filter((g) => g !== obj);
       obj.removeFromParent();
     }
+    if (this.selected === obj) this.select(null);
     this.clearHover();
     this.buildPanel();
   }
@@ -495,6 +640,15 @@ export class Editor {
     this.camera.up.set(0, 0, 1);
     this.camera.position.copy(this.cameraPos);
     this.camera.lookAt(this.cameraPos.clone().add(forward));
+
+    // While dragging the gizmo: keep the outline synced, skip hover/ghost
+    if (this.tcDragging) {
+      this.selectedOutline?.update();
+      this.ghost?.removeFromParent();
+      this.ghost = null;
+      this.graphics.render();
+      return;
+    }
 
     // Hover highlight (wireframe outline; materials are shared across blocks)
     const hit = this.cursorHit();
@@ -539,6 +693,88 @@ export class Editor {
   }
 
   private hoverOutline: THREE.BoxHelper | null = null;
+  private transformControls!: TransformControls;
+  private tcDragging = false;
+  private selected: THREE.Object3D | null = null;
+  private selectedOutline: THREE.BoxHelper | null = null;
+
+  // ---------- selection & movement ----------
+
+  private select(obj: THREE.Object3D | null): void {
+    this.selected = obj;
+    this.selectedOutline?.removeFromParent();
+    this.selectedOutline = null;
+    if (obj !== null) {
+      this.transformControls.attach(obj);
+      this.selectedOutline = new THREE.BoxHelper(obj, 0x33ff77);
+      this.scene.add(this.selectedOutline);
+    } else {
+      this.transformControls.detach();
+    }
+    this.buildPanel();
+  }
+
+  private selectedData(): { block: LevelBlock | null; item: LevelItem | null } {
+    return {
+      block: (this.selected?.userData.block as LevelBlock | undefined) ?? null,
+      item: (this.selected?.userData.item as LevelItem | undefined) ?? null,
+    };
+  }
+
+  // After a gizmo drag: fold the mesh's position delta into the level data.
+  private commitTransform(): void {
+    if (this.selected === null) return;
+    const { block, item } = this.selectedData();
+    const snap = (v: number): number => Math.round(v / GRID_STEP) * GRID_STEP;
+    if (block !== null) {
+      block.x = snap(this.selected.position.x);
+      block.y = snap(this.selected.position.y);
+      block.z = snap(Math.max(0, this.selected.position.z));
+      this.selected.position.set(block.x, block.y, block.z);
+    } else if (item !== null) {
+      item.x = snap(this.selected.position.x);
+      item.y = snap(this.selected.position.y);
+      item.z = snap(Math.max(0, this.selected.position.z));
+      this.selected.position.set(item.x, item.y, item.z);
+    }
+    this.selectedOutline?.update();
+    this.buildPanel();
+  }
+
+  private moveSelected(dx: number, dy: number, dz: number): void {
+    if (this.selected === null) return;
+    const { block, item } = this.selectedData();
+    if (block !== null) {
+      block.x += dx;
+      block.y += dy;
+      block.z = Math.max(0, block.z + dz);
+      this.selected.position.set(block.x, block.y, block.z);
+    } else if (item !== null) {
+      item.x += dx;
+      item.y += dy;
+      item.z = Math.max(0, item.z + dz);
+      this.selected.position.set(item.x, item.y, item.z);
+    }
+    this.selectedOutline?.update();
+    this.buildPanel();
+  }
+
+  private duplicateSelected(): void {
+    const { block, item } = this.selectedData();
+    if (block !== null) {
+      const copy: LevelBlock = { ...block, x: block.x + block.sx, y: block.y };
+      this.level.blocks.push(copy);
+      this.addBlockMesh(copy);
+      this.select(this.blockMeshes[this.blockMeshes.length - 1]!);
+    } else if (item !== null) {
+      const copy: LevelItem = { ...item, x: item.x + 2 };
+      this.level.items.push(copy);
+      void this.addItemVisual(copy).then(() => {
+        const obj = this.itemGroups[this.itemGroups.length - 1];
+        if (obj !== undefined) this.select(obj);
+      });
+    }
+  }
 }
 
 const ITEM_DTS_PATHS: Record<string, string> = {
