@@ -228,8 +228,15 @@ export class Editor {
     this.panel.innerHTML = "";
     const title = document.createElement("div");
     title.textContent = `Editing: ${this.level.name}`;
-    title.style.cssText = "font-weight:800;font-size:18px;margin-bottom:4px;";
+    title.style.cssText = "font-weight:800;font-size:18px;margin-bottom:2px;";
     this.panel.appendChild(title);
+
+    const badge = document.createElement("div");
+    badge.textContent = "CUSTOM SANDBOX — official levels can't be edited";
+    badge.style.cssText =
+      "font:600 10.5px 'Baloo 2',sans-serif;color:#0d2c4d;background:#ffe37a;border-radius:6px;" +
+      "padding:2px 6px;margin-bottom:6px;display:inline-block;";
+    this.panel.appendChild(badge);
 
     section("Blocks");
     for (const size of BLOCK_SIZES) {
