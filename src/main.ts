@@ -7,6 +7,7 @@ import { Input } from "./input";
 import { PauseMenu } from "./game/pauseMenu";
 import { Editor } from "./editor/editor";
 import { emptyLevel, loadCustomLevel } from "./editor/customLevel";
+import { settings } from "./game/settings";
 
 // Slice 3: full mission gameplay — Ready/Set/Go, timer, gems, powerups,
 // OOB, finish. Pick the level with ?mis=data/missions/beginner/<name>.mis
@@ -43,7 +44,7 @@ async function main(): Promise<void> {
   camera.up.set(0, 0, 1);
 
   const gfxParam = params.get("gfx");
-  const mode = gfxParam === "classic" ? "classic" : "enhanced";
+  const mode = gfxParam !== null ? (gfxParam === "classic" ? "classic" : "enhanced") : settings.gfxMode;
   const graphics = new Graphics(renderer, scene, camera, mode);
   const enhancer = new MaterialEnhancer(mode === "enhanced", renderer);
 

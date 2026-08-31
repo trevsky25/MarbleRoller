@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { Vec3, Quat } from "../math/vec3";
 import { CollisionWorld } from "../collision/collisionWorld";
 import { RayIntersectionData } from "../collision/collisionSurface";
+import { settings } from "../game/settings";
 
 const CAMERA_DISTANCE = 2.5;
 
@@ -18,8 +19,10 @@ export class CameraController {
   nextCameraYaw = 0;
   nextCameraPitch = 0.45;
 
-  // matches MBHaxe's default cameraSensitivity = 0.6
-  sensitivity = 0.6;
+  // MBHaxe default cameraSensitivity = 0.6; user-adjustable via Options
+  get sensitivity(): number {
+    return settings.mouseSensitivity;
+  }
 
   private collisionWorld: CollisionWorld;
   private camera: THREE.PerspectiveCamera;
@@ -33,7 +36,7 @@ export class CameraController {
   orbit(deltaX: number, deltaY: number): void {
     const factor = lerp(1 / 1000, 1 / 200, this.sensitivity);
     this.nextCameraYaw += deltaX * factor;
-    this.nextCameraPitch += deltaY * factor;
+    this.nextCameraPitch += deltaY * factor * (settings.invertY ? -1 : 1);
   }
 
   // Direct rotation in radians (arrow-key camera controls)

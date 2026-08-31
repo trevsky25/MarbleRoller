@@ -2,6 +2,7 @@
 // UI but rendered as crisp DOM.
 import { ResourceIndex } from "../assets/resourceIndex";
 import { listCustomLevels, deleteCustomLevel } from "../editor/customLevel";
+import { settings, updateSettings } from "./settings";
 
 const CARD_CSS =
   "position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);" +
@@ -345,10 +346,168 @@ export class PauseMenu {
     };
 
     card.appendChild(pill("Play", "🏸", false, () => void this.showLevelSelect("home")));
+    card.appendChild(pill("Help/Credits", "🙋", true, () => this.showHelp()));
+    card.appendChild(pill("Options", "⚙️", false, () => this.showOptions()));
     card.appendChild(pill("Build Level", "🔨", true, () => this.showNamePrompt(() => this.showHome())));
     if (!this.standalone) {
       card.appendChild(pill("Back to Game", "⬅️", true, () => this.onResume?.()));
     }
+
+    this.root.appendChild(card);
+  }
+
+  private showHelp(): void {
+    this.root.innerHTML = "";
+    this.addBackdropIfStandalone();
+    const card = document.createElement("div");
+    card.style.cssText = CARD_CSS + "min-width:520px;max-width:600px;max-height:80vh;";
+
+    const title = document.createElement("h1");
+    title.textContent = "Help & Credits";
+    title.style.cssText = TITLE_CSS.replace("40px", "32px");
+    card.appendChild(title);
+
+    const content = document.createElement("div");
+    content.style.cssText =
+      "flex:1;overflow-y:auto;background:rgba(255,255,255,0.28);border:3px solid #2c5d94;border-radius:14px;padding:14px 18px;" +
+      "font:600 15px/1.5 'Baloo 2',sans-serif;color:#12314f;";
+
+    const section = (heading: string): void => {
+      const h = document.createElement("div");
+      h.textContent = heading;
+      h.style.cssText = "font:800 19px 'Baloo 2',sans-serif;color:#0d2c4d;margin:10px 0 4px;border-bottom:2px solid rgba(44,93,148,0.4);";
+      content.appendChild(h);
+    };
+    const line = (html: string): void => {
+      const p = document.createElement("div");
+      p.innerHTML = html;
+      p.style.marginBottom = "4px";
+      content.appendChild(p);
+    };
+    const kbd = (k: string): string =>
+      `<span style="display:inline-block;background:#2c5d94;color:#fff;border-radius:6px;padding:0 7px;font-weight:800;font-size:13px;">${k}</span>`;
+
+    section("Goal");
+    line("Roll your marble to the finish pad as fast as you can. Some levels hide gems — collect every gem before the finish counts!");
+
+    section("Controls");
+    line(`${kbd("W")} ${kbd("A")} ${kbd("S")} ${kbd("D")} roll the marble &nbsp; · &nbsp; ${kbd("Space")} jump`);
+    line(`${kbd("Mouse")} camera (click to capture) &nbsp; · &nbsp; ${kbd("←")}${kbd("→")}${kbd("↑")}${kbd("↓")} camera keys`);
+    line(`${kbd("E")} or ${kbd("Right Click")} use held powerup &nbsp; · &nbsp; ${kbd("R")} restart level`);
+    line(`${kbd("Esc")} pause menu &nbsp; · &nbsp; ${kbd("G")} graphics mode toggle`);
+
+    section("Powerups");
+    line("🦘 <b>Super Jump</b> launches you upward · 💨 <b>Super Speed</b> boosts you forward · ⏱ <b>Time Travel</b> freezes the clock for a few seconds. Grab a powerup, use it when you need it.");
+
+    section("Level Builder");
+    line("Build Level opens the sandbox editor: place blocks and ramps with real game surfaces (ice slides, bouncy floors bounce), add pads, gems and powerups, then Play Test your creation. Custom levels appear under Play → Custom.");
+
+    section("Credits");
+    line("<b>Marble Blast Gold</b> — original game by GarageGames / Monster Studios (2002). All game assets belong to their rights holders.");
+    line("This personal rebuild is ported from <b>MBHaxe</b> by RandomityGuy (MIT), which builds on the OpenMBU community's work.");
+    line("Rebuild: TypeScript + Three.js. HUD/menu font: Baloo 2 by Ek Type (OFL). Not for distribution.");
+
+    card.appendChild(content);
+
+    const back = this.button("Back", () => (this.standalone ? this.showHome() : this.showMain("")));
+    back.style.marginTop = "12px";
+    card.appendChild(back);
+
+    this.root.appendChild(card);
+  }
+
+  private showOptions(): void {
+    this.root.innerHTML = "";
+    this.addBackdropIfStandalone();
+    const card = document.createElement("div");
+    card.style.cssText = CARD_CSS + "min-width:420px;";
+
+    const title = document.createElement("h1");
+    title.textContent = "Options";
+    title.style.cssText = TITLE_CSS.replace("40px", "32px");
+    card.appendChild(title);
+
+    const row = (label: string): HTMLDivElement => {
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "margin:10px 0;";
+      const lab = document.createElement("div");
+      lab.textContent = label;
+      lab.style.cssText = "font:800 17px 'Baloo 2',sans-serif;color:#fff;margin-bottom:5px;" +
+        "-webkit-text-stroke:3px rgba(26,54,88,0.7);paint-order:stroke fill;";
+      wrap.appendChild(lab);
+      card.appendChild(wrap);
+      return wrap;
+    };
+
+    const toggleChips = (wrap: HTMLDivElement, choices: [string, string][], current: string, onPick: (id: string) => void): void => {
+      const chipRow = document.createElement("div");
+      chipRow.style.cssText = "display:flex;gap:8px;";
+      for (const [id, label] of choices) {
+        const chip = document.createElement("button");
+        chip.textContent = label;
+        const selected = id === current;
+        chip.style.cssText =
+          `flex:1;padding:8px;cursor:pointer;border-radius:999px;font:800 16px 'Baloo 2',sans-serif;` +
+          `border:3px solid ${selected ? "#ffe37a" : "#2c5d94"};` +
+          `background:${selected ? "linear-gradient(180deg,#fff3b0,#f5bd2e)" : "rgba(255,255,255,0.2)"};` +
+          `color:${selected ? "#5b3a06" : "#dceeff"};`;
+        chip.onmouseenter = () => (chip.style.filter = "brightness(1.12)");
+        chip.onmouseleave = () => (chip.style.filter = "");
+        chip.onclick = () => {
+          onPick(id);
+          this.showOptions();
+        };
+        chipRow.appendChild(chip);
+      }
+      wrap.appendChild(chipRow);
+    };
+
+    // Graphics mode
+    const gfxRow = row("Graphics");
+    toggleChips(
+      gfxRow,
+      [
+        ["enhanced", "Enhanced"],
+        ["classic", "Classic"],
+      ],
+      settings.gfxMode,
+      (id) => updateSettings({ gfxMode: id as "enhanced" | "classic" }),
+    );
+    const gfxHint = document.createElement("div");
+    gfxHint.textContent = "Takes effect when a level loads";
+    gfxHint.style.cssText = "font:600 12px 'Baloo 2',sans-serif;color:#dceeff;opacity:0.8;margin-top:3px;";
+    gfxRow.appendChild(gfxHint);
+
+    // Mouse sensitivity
+    const sensRow = row(`Mouse Sensitivity — ${Math.round(settings.mouseSensitivity * 100)}%`);
+    const slider = document.createElement("input");
+    slider.type = "range";
+    slider.min = "0";
+    slider.max = "100";
+    slider.value = String(Math.round(settings.mouseSensitivity * 100));
+    slider.style.cssText = "width:100%;accent-color:#f5bd2e;cursor:pointer;height:26px;";
+    slider.oninput = () => {
+      updateSettings({ mouseSensitivity: parseInt(slider.value, 10) / 100 });
+      const lab = sensRow.firstChild as HTMLDivElement;
+      lab.textContent = `Mouse Sensitivity — ${slider.value}%`;
+    };
+    sensRow.appendChild(slider);
+
+    // Invert Y
+    const invRow = row("Invert Camera Y");
+    toggleChips(
+      invRow,
+      [
+        ["off", "Off"],
+        ["on", "On"],
+      ],
+      settings.invertY ? "on" : "off",
+      (id) => updateSettings({ invertY: id === "on" }),
+    );
+
+    const back = this.button("Back", () => (this.standalone ? this.showHome() : this.showMain("")));
+    back.style.marginTop = "14px";
+    card.appendChild(back);
 
     this.root.appendChild(card);
   }
