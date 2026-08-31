@@ -500,12 +500,33 @@ export class Editor {
     this.keys.delete(e.code);
   };
 
+  private updateCursor(e: MouseEvent): void {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.cursorNdc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  }
+
   private onMouseDown = (e: MouseEvent): void => {
     if (e.button === 2) {
       this.looking = true;
       return;
     }
     if (e.button !== 0) return;
+    this.updateCursor(e);
+
+    // Resize handles take priority when the cursor is over one
+    if (this.selected !== null && this.resizeHandles.length > 0) {
+      this.raycaster.setFromCamera(this.cursorNdc, this.camera);
+      const handleHits = this.raycaster.intersectObjects(
+        this.resizeHandles.filter((h) => h.mesh.parent !== null).map((h) => h.mesh),
+        false,
+      );
+      const first = handleHits[0];
+      if (first !== undefined) {
+        this.startResize(first.object.userData.resizeFace as "x+" | "x-" | "y+" | "y-" | "z+" | "z-");
+        return;
+      }
+    }
+
     // Clicks on the gizmo belong to TransformControls
     if (this.tcDragging || (this.transformControls.axis !== null && this.selected !== null)) return;
 
@@ -519,6 +540,10 @@ export class Editor {
 
   private onMouseUp = (e: MouseEvent): void => {
     if (e.button === 2) this.looking = false;
+    if (e.button === 0 && this.resizing !== null) {
+      this.resizing = null;
+      this.buildPanel();
+    }
   };
 
   private onMouseMove = (e: MouseEvent): void => {
@@ -527,8 +552,8 @@ export class Editor {
       this.pitch -= e.movementY * 0.004;
       this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch));
     }
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    this.cursorNdc.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    this.updateCursor(e);
+    if (this.resizing !== null) this.applyResize();
   };
 
   private onContextMenu = (e: Event): void => e.preventDefault();
@@ -641,8 +666,10 @@ export class Editor {
     this.camera.position.copy(this.cameraPos);
     this.camera.lookAt(this.cameraPos.clone().add(forward));
 
-    // While dragging the gizmo: keep the outline synced, skip hover/ghost
-    if (this.tcDragging) {
+    this.updateResizeHandles();
+
+    // While dragging the gizmo or a resize handle: skip hover/ghost
+    if (this.tcDragging || this.resizing !== null) {
       this.selectedOutline?.update();
       this.ghost?.removeFromParent();
       this.ghost = null;
@@ -697,6 +724,150 @@ export class Editor {
   private tcDragging = false;
   private selected: THREE.Object3D | null = null;
   private selectedOutline: THREE.BoxHelper | null = null;
+
+  // ---------- drag-resize handles ----------
+
+  // face key: which local face the handle stretches
+  private resizeHandles: { mesh: THREE.Mesh; face: "x+" | "x-" | "y+" | "y-" | "z+" | "z-" }[] = [];
+  private resizing: {
+    face: "x+" | "x-" | "y+" | "y-" | "z+" | "z-";
+    axisDir: THREE.Vector3;
+    axisOrigin: THREE.Vector3;
+    t0: number;
+    start: LevelBlock;
+  } | null = null;
+
+  private static rotXY(x: number, y: number, rot: number): [number, number] {
+    switch (((rot % 4) + 4) % 4) {
+      case 1:
+        return [-y, x];
+      case 2:
+        return [-x, -y];
+      case 3:
+        return [y, -x];
+      default:
+        return [x, y];
+    }
+  }
+
+  private ensureResizeHandles(): void {
+    if (this.resizeHandles.length > 0) return;
+    const faces: ("x+" | "x-" | "y+" | "y-" | "z+" | "z-")[] = ["x+", "x-", "y+", "y-", "z+", "z-"];
+    for (const face of faces) {
+      const color = face.startsWith("x") ? 0xff5544 : face.startsWith("y") ? 0x44cc55 : 0x4488ff;
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(0.34, 0.34, 0.34),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false }),
+      );
+      mesh.renderOrder = 999;
+      mesh.userData.resizeFace = face;
+      this.resizeHandles.push({ mesh, face });
+    }
+  }
+
+  // Position handles at the face centers of the selected block (world space).
+  private updateResizeHandles(): void {
+    const { block } = this.selectedData();
+    if (block === null || this.tcDragging) {
+      for (const h of this.resizeHandles) h.mesh.removeFromParent();
+      return;
+    }
+    this.ensureResizeHandles();
+    const zc = block.z + block.sz / 2;
+    for (const h of this.resizeHandles) {
+      let lx = 0;
+      let ly = 0;
+      let z = zc;
+      if (h.face === "x+") lx = block.sx / 2 + 0.3;
+      else if (h.face === "x-") lx = -block.sx / 2 - 0.3;
+      else if (h.face === "y+") ly = block.sy / 2 + 0.3;
+      else if (h.face === "y-") ly = -block.sy / 2 - 0.3;
+      else if (h.face === "z+") z = block.z + block.sz + 0.3;
+      else z = block.z - 0.3;
+      const [wx, wy] = Editor.rotXY(lx, ly, block.rot);
+      h.mesh.position.set(block.x + wx, block.y + wy, z);
+      if (h.mesh.parent === null) this.scene.add(h.mesh);
+    }
+  }
+
+  // world direction a face's handle drags along
+  private faceWorldDir(block: LevelBlock, face: string): THREE.Vector3 {
+    if (face === "z+" || face === "z-") return new THREE.Vector3(0, 0, face === "z+" ? 1 : -1);
+    const local: [number, number] =
+      face === "x+" ? [1, 0] : face === "x-" ? [-1, 0] : face === "y+" ? [0, 1] : [0, -1];
+    const [wx, wy] = Editor.rotXY(local[0], local[1], block.rot);
+    return new THREE.Vector3(wx, wy, 0);
+  }
+
+  // parameter of the closest point on line (origin + t*dir) to the cursor ray
+  private axisParamAtCursor(origin: THREE.Vector3, dir: THREE.Vector3): number {
+    this.raycaster.setFromCamera(this.cursorNdc, this.camera);
+    const rayOrigin = this.raycaster.ray.origin;
+    const rayDir = this.raycaster.ray.direction;
+    const w0 = new THREE.Vector3().subVectors(origin, rayOrigin);
+    const a = dir.dot(dir);
+    const b = dir.dot(rayDir);
+    const c = rayDir.dot(rayDir);
+    const d = dir.dot(w0);
+    const e = rayDir.dot(w0);
+    const denom = a * c - b * b;
+    if (Math.abs(denom) < 1e-6) return 0;
+    return (b * e - c * d) / denom;
+  }
+
+  private startResize(face: "x+" | "x-" | "y+" | "y-" | "z+" | "z-"): void {
+    const { block } = this.selectedData();
+    if (block === null) return;
+    const handle = this.resizeHandles.find((h) => h.face === face);
+    if (handle === undefined) return;
+    const axisDir = this.faceWorldDir(block, face);
+    const axisOrigin = handle.mesh.position.clone();
+    this.resizing = {
+      face,
+      axisDir,
+      axisOrigin,
+      t0: this.axisParamAtCursor(axisOrigin, axisDir),
+      start: { ...block },
+    };
+  }
+
+  private applyResize(): void {
+    if (this.resizing === null || this.selected === null) return;
+    const { block } = this.selectedData();
+    if (block === null) return;
+    const r = this.resizing;
+    const t = this.axisParamAtCursor(r.axisOrigin, r.axisDir);
+    // outward positive; snap growth to the grid
+    let d = Math.round((t - r.t0) / GRID_STEP) * GRID_STEP;
+
+    const face = r.face;
+    const start = r.start;
+    if (face === "z+") {
+      block.sz = Math.max(GRID_STEP, start.sz + d);
+    } else if (face === "z-") {
+      d = Math.min(d, start.sz - GRID_STEP);
+      block.sz = Math.max(GRID_STEP, start.sz + d);
+      block.z = Math.max(0, start.z - d);
+    } else {
+      const dim = face.startsWith("x") ? "sx" : "sy";
+      const newSize = Math.max(GRID_STEP, start[dim] + d);
+      const grow = newSize - start[dim];
+      block[dim] = newSize;
+      // face moves outward: center shifts by half the growth along the face dir
+      const local: [number, number] =
+        face === "x+" ? [grow / 2, 0] : face === "x-" ? [-grow / 2, 0] : face === "y+" ? [0, grow / 2] : [0, -grow / 2];
+      const [wx, wy] = Editor.rotXY(local[0], local[1], start.rot);
+      block.x = start.x + wx;
+      block.y = start.y + wy;
+    }
+
+    const mesh = this.selected as THREE.Mesh;
+    mesh.geometry.dispose();
+    mesh.geometry = this.localBlockGeometry(block);
+    mesh.position.set(block.x, block.y, block.z);
+    this.selectedOutline?.update();
+    this.updateResizeHandles();
+  }
 
   // ---------- selection & movement ----------
 
